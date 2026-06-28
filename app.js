@@ -22,6 +22,7 @@ let currentUId = null;
 let activeBlobUrl = null; 
 let cachedGames = {};
 let selectedPreviewGameId = null;
+let isAdminMode = false;
 
 // DEFINIÇÃO DA WHITELIST DE PROVEDORES DE EMAIL
 const emailWhitelist = [
@@ -44,6 +45,10 @@ const btnAdminPanel = document.getElementById('btn-admin-panel');
 const btnOpenProfile = document.getElementById('btn-open-profile');
 const playerDashboard = document.getElementById('player-dashboard-section');
 
+// Elementos de Controle do Menu Retrátil Mobile
+const btnMenuToggle = document.getElementById('btn-menu-toggle');
+const navbarLinks = document.getElementById('navbar-links');
+
 // Elementos dos Modais
 const modalAuth = document.getElementById('modal-auth');
 const modalForgot = document.getElementById('modal-forgot');
@@ -58,13 +63,55 @@ const previewTitle = document.getElementById('preview-title');
 const previewDesc = document.getElementById('preview-desc');
 const btnStartPreviewGame = document.getElementById('btn-start-preview-game');
 
-// Botões de Execução com Mutação de Texto
+// Botões de Execução com Mutação de Texto e Formulário Admin
 const btnExecuteLogin = document.getElementById('btn-execute-login');
 const btnExecuteRegister = document.getElementById('btn-execute-register');
+const btnSaveNewGame = document.getElementById('btn-save-new-game');
+const btnCancelEditGame = document.getElementById('btn-cancel-edit-game');
+const adminFormTitle = document.getElementById('admin-form-title');
+
+// Abas do Painel Administrativo
+const tabAddGame = document.getElementById('tab-add-game');
+const tabAdvancedMenu = document.getElementById('tab-advanced-menu');
+const tabManageUsers = document.getElementById('tab-manage-users');
+
+const adminGameSection = document.getElementById('admin-game-section');
+const adminAdvancedSection = document.getElementById('admin-advanced-section');
+const adminUserSection = document.getElementById('admin-user-section');
+
+// Elementos Avançados de Categorias (Bulk)
+const bulkFilterCategory = document.getElementById('bulk-filter-category');
+const bulkFilterSubcategory = document.getElementById('bulk-filter-subcategory');
+const btnBulkEditCat = document.getElementById('btn-bulk-edit-cat');
+const btnBulkDeleteCat = document.getElementById('btn-bulk-delete-cat');
+const btnExportJson = document.getElementById('btn-export-json');
+const importJsonFile = document.getElementById('import-json-file');
 
 // Controle de Telas Internas dos Modais de Autenticação
 const authLoginSec = document.getElementById('auth-login-section');
 const authRegisterSec = document.getElementById('auth-register-section');
+
+// --- SISTEMA DE CONTROLE DO GATILHO DA SETA (MENU MOBILE) ---
+if (btnMenuToggle && navbarLinks) {
+    btnMenuToggle.addEventListener('click', () => {
+        const isOpen = navbarLinks.classList.toggle('mobile-open');
+        if (isOpen) {
+            btnMenuToggle.classList.add('open-active');
+            btnMenuToggle.textContent = "▲";
+        } else {
+            btnMenuToggle.classList.remove('open-active');
+            btnMenuToggle.textContent = "▼";
+        }
+    });
+
+    navbarLinks.addEventListener('click', (e) => {
+        if (e.target.closest('a') || e.target.closest('button')) {
+            navbarLinks.classList.remove('mobile-open');
+            btnMenuToggle.classList.remove('open-active');
+            btnMenuToggle.textContent = "▼";
+        }
+    });
+}
 
 // Ouvinte de Estado da Sessão (Auth)
 onAuthStateChanged(auth, async (user) => {
@@ -72,11 +119,10 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = user;
         currentUId = user.uid;
         
-        // CORREÇÃO CRÍTICA: Verifica se ele está marcado como banido no banco de dados antes de carregar o app
         const snapshot = await get(ref(database, `usuarios/${currentUId}/perfil`));
         if (snapshot.exists() && snapshot.val().banido === true) {
             alert("🔒 Acesso Negado! Esta conta foi banida permanentemente pelo administrador.");
-            signOut(auth); // Expulsa o usuário imediatamente do Firebase Auth do cliente
+            signOut(auth);
             return;
         }
 
@@ -85,11 +131,13 @@ onAuthStateChanged(auth, async (user) => {
         if (userAvatar) userAvatar.src = user.photoURL || "https://win98icon.org/styles/asset/windows98/v1/user_computer-0.png";
 
         if (user.email === "admin@admin.com") {
+            isAdminMode = true;
             if (userName) userName.textContent = "Diretor Admin";
             if (btnAdminPanel) btnAdminPanel.classList.remove('hidden');
             if (btnOpenProfile) btnOpenProfile.classList.add('hidden');
             if (playerDashboard) playerDashboard.classList.add('hidden');
         } else {
+            isAdminMode = false;
             if (userName) userName.textContent = user.displayName ? user.displayName.split(' ')[0] : "Jogador";
             if (btnAdminPanel) btnAdminPanel.classList.add('hidden');
             if (btnOpenProfile) btnOpenProfile.classList.remove('hidden');
@@ -103,7 +151,7 @@ onAuthStateChanged(auth, async (user) => {
                     email: user.email,
                     role: "user",
                     solicitou_exclusao: false,
-                    banido: false // Inicializa explicitamente como não banido
+                    banido: false
                 });
             }
             loadProfileDataToFields();
@@ -112,6 +160,7 @@ onAuthStateChanged(auth, async (user) => {
     } else {
         currentUser = null;
         currentUId = null;
+        isAdminMode = false;
         if (btnOpenAuth) btnOpenAuth.classList.remove('hidden');
         if (userInfo) userInfo.classList.add('hidden');
         if (btnAdminPanel) btnAdminPanel.classList.add('hidden');
@@ -120,9 +169,15 @@ onAuthStateChanged(auth, async (user) => {
         
         resetAuthFormStates();
     }
+    triggerCatalogRenderRefresh();
 });
 
-// Limpa todos os campos e estados ao deslogar ou trocar de aba
+function triggerCatalogRenderRefresh() {
+    if(cachedGames) {
+        renderCatalogGrid(cachedGames);
+    }
+}
+
 function resetAuthFormStates() {
     const inputs = document.querySelectorAll('#modal-auth input');
     inputs.forEach(input => input.value = "");
@@ -137,7 +192,6 @@ function resetAuthFormStates() {
     }
 }
 
-// Carrega os dados do usuário nos inputs dentro do Modal de Perfil
 async function loadProfileDataToFields() {
     if (!currentUId) return;
     const snapshot = await get(ref(database, `usuarios/${currentUId}/perfil`));
@@ -150,7 +204,6 @@ async function loadProfileDataToFields() {
     }
 }
 
-// Salva as alterações feitas dentro do Modal de Perfil
 if (document.getElementById('btn-save-profile')) {
     document.getElementById('btn-save-profile').addEventListener('click', async () => {
         if (!currentUId) return;
@@ -162,14 +215,13 @@ if (document.getElementById('btn-save-profile')) {
 
         try {
             await update(ref(database, `usuarios/${currentUId}/perfil`), { nome, sobrenome, cidade });
-            alert("Perfil updated com sucesso!");
+            alert("Perfil atualizado com sucesso!");
             if (userName) userName.textContent = nome;
             modalProfile.classList.add('hidden');
         } catch (err) { alert("Falha ao salvar: " + err.message); }
     });
 }
 
-// Abertura e Fechamento de Janelas Modais
 if (btnOpenAuth) btnOpenAuth.addEventListener('click', () => { modalAuth.classList.remove('hidden'); authLoginSec.classList.remove('hidden'); authRegisterSec.classList.add('hidden'); resetAuthFormStates(); });
 if (document.getElementById('close-auth-modal')) document.getElementById('close-auth-modal').addEventListener('click', () => modalAuth.classList.add('hidden'));
 if (document.getElementById('link-forgot-password')) document.getElementById('link-forgot-password').addEventListener('click', (e) => { e.preventDefault(); modalAuth.classList.add('hidden'); modalForgot.classList.remove('hidden'); });
@@ -192,7 +244,7 @@ if (document.getElementById('link-to-login')) {
     });
 }
 
-if (btnAdminPanel) btnAdminPanel.addEventListener('click', () => { modalAdmin.classList.remove('hidden'); loadAdminUsersTable(); });
+if (btnAdminPanel) btnAdminPanel.addEventListener('click', () => { modalAdmin.classList.remove('hidden'); switchAdminTab('add'); });
 if (document.getElementById('close-admin-modal')) document.getElementById('close-admin-modal').addEventListener('click', () => modalAdmin.classList.add('hidden'));
 
 if (btnOpenProfile) btnOpenProfile.addEventListener('click', () => { modalProfile.classList.remove('hidden'); loadProfileDataToFields(); });
@@ -200,7 +252,6 @@ if (document.getElementById('close-profile-modal')) document.getElementById('clo
 
 if (document.getElementById('close-preview-modal')) document.getElementById('close-preview-modal').addEventListener('click', () => modalGamePreview.classList.add('hidden'));
 
-// --- SISTEMA INTEGRAÇÃO KEYDOWN (ENTER) PARA FLUXO UX DE LOGIN ---
 document.querySelectorAll('#modal-auth .next-on-enter').forEach(input => {
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -215,51 +266,29 @@ document.querySelectorAll('#modal-auth .next-on-enter').forEach(input => {
     });
 });
 
-// Acionamento final por Enter na tela de Login
 const loginPasswordInput = document.getElementById('login-senha');
 if (loginPasswordInput) {
-    loginPasswordInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            processLoginAction();
-        }
-    });
+    loginPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); processLoginAction(); } });
 }
 
-// Acionamento final por Enter na tela de Cadastro
 const registerPasswordInput = document.getElementById('reg-senha');
 if (registerPasswordInput) {
-    registerPasswordInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            processRegisterAction();
-        }
-    });
+    registerPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); processRegisterAction(); } });
 }
 
-// Fluxos de Autenticação Tradicional e Google Provider
-if (btnExecuteLogin) {
-    btnExecuteLogin.addEventListener('click', () => processLoginAction());
-}
-
-if (btnExecuteRegister) {
-    btnExecuteRegister.addEventListener('click', () => processRegisterAction());
-}
+if (btnExecuteLogin) btnExecuteLogin.addEventListener('click', () => processLoginAction());
+if (btnExecuteRegister) btnExecuteRegister.addEventListener('click', () => processRegisterAction());
 
 async function processLoginAction() {
     const email = document.getElementById('login-email').value.trim();
     const senha = loginPasswordInput.value.trim();
-    
     if(!email || !senha) { alert("Preencha todos os campos para entrar!"); return; }
-    
     btnExecuteLogin.textContent = "Logando...";
     btnExecuteLogin.disabled = true;
-
     try { 
         await signInWithEmailAndPassword(auth, email, senha); 
         modalAuth.classList.add('hidden'); 
-    } 
-    catch (err) { 
+    } catch (err) { 
         alert("Acesso negado: " + err.message); 
         btnExecuteLogin.textContent = "Entrar ⚡";
         btnExecuteLogin.disabled = false;
@@ -276,10 +305,7 @@ async function processRegisterAction() {
     if(!nome || !sobrenome || !cidade || !email || !senha) { alert("Preencha todos os campos!"); return; }
 
     const emailParts = email.split('@');
-    if (emailParts.length !== 2) {
-        alert("Insira um endereço de e-mail válido!");
-        return;
-    }
+    if (emailParts.length !== 2) { alert("Insira um endereço de e-mail válido!"); return; }
     
     const emailDomain = emailParts[1].toLowerCase();
     if (!emailWhitelist.includes(emailDomain)) {
@@ -335,24 +361,37 @@ if (document.getElementById('btn-request-delete-account')) {
     });
 }
 
-// Monitoramento e Renderização Dinâmica dos Cards do Catálogo Geral
+// --- ESCUTA PRINCIPAL DO BANCO DE JOGOS ---
 onValue(ref(database, 'jogos'), (snapshot) => {
+    cachedGames = snapshot.val() || {};
+    renderCatalogGrid(cachedGames);
+    buildAdminBulkSelectors(cachedGames);
+    renderAdminGamesTableList(cachedGames);
+});
+
+function renderCatalogGrid(jogos) {
     const grid = document.getElementById('live-catalog-grid');
     if (!grid) return;
     grid.innerHTML = "";
-    cachedGames = snapshot.val() || {};
 
-    if (Object.keys(cachedGames).length === 0) {
+    if (Object.keys(jogos).length === 0) {
         grid.innerHTML = `<p style="color:var(--text-gray); padding: 20px;">Nenhum jogo publicado pelo administrador ainda.</p>`;
         return;
     }
 
-    for (let gameId in cachedGames) {
-        const jogo = cachedGames[gameId];
+    for (let gameId in jogos) {
+        const jogo = jogos[gameId];
         const card = document.createElement('div');
         card.className = "game-card";
+        
+        let adminButtonHtml = "";
+        if (isAdminMode) {
+            adminButtonHtml = `<button class="btn-edit-card" onclick="openQuickEditGameForm('${gameId}')" title="Editar Jogo">⚙️</button>`;
+        }
+
         card.innerHTML = `
             <div class="badge-system">${jogo.plataforma.toUpperCase()}</div>
+            ${adminButtonHtml}
             <button class="btn-fav-card" data-id="${gameId}">❤</button>
             <div class="cover-wrapper" onclick="openGamePreview('${gameId}')">
                 <img src="${jogo.url_capa}" alt="${jogo.titulo}">
@@ -365,7 +404,7 @@ onValue(ref(database, 'jogos'), (snapshot) => {
         grid.appendChild(card);
     }
     updateFavoriteButtonsVisuals();
-});
+}
 
 window.openGamePreview = function(gameId) {
     const jogo = cachedGames[gameId];
@@ -379,7 +418,6 @@ window.openGamePreview = function(gameId) {
 
     if (modalGamePreview) modalGamePreview.classList.remove('hidden');
     
-    // Reseta o topo do scroll interno para o usuário ler sempre do começo ao abrir o modal
     const scrollContainer = document.querySelector('.preview-scrollable-text');
     if (scrollContainer) scrollContainer.scrollTop = 0;
 };
@@ -418,7 +456,6 @@ function updateFavoriteButtonsVisuals() {
     });
 }
 
-// Painéis de Controle e Observação do Dashboard Pessoal
 function setupPlayerDashboardObservers() {
     onValue(ref(database, `usuarios/${currentUId}/favoritos`), (snapshot) => {
         const favGrid = document.getElementById('player-favorites-grid');
@@ -481,27 +518,39 @@ window.deleteSaveState = async function(saveKey) {
     }
 };
 
-// Operações da Área do Painel de Administração
-if (document.getElementById('tab-add-game')) {
-    document.getElementById('tab-add-game').addEventListener('click', () => {
-        document.getElementById('admin-game-section').classList.remove('hidden');
-        document.getElementById('admin-user-section').classList.add('hidden');
-        document.getElementById('tab-add-game').style.background = "var(--neon-purple)";
-        document.getElementById('tab-manage-users').style.background = "transparent";
-    });
-}
-if (document.getElementById('tab-manage-users')) {
-    document.getElementById('tab-manage-users').addEventListener('click', () => {
-        document.getElementById('admin-user-section').classList.remove('hidden');
-        document.getElementById('admin-game-section').classList.add('hidden');
-        document.getElementById('tab-manage-users').style.background = "var(--neon-purple)";
-        document.getElementById('tab-add-game').style.background = "transparent";
+// --- LOGICA DE ALTERAÇÃO DE ABAS DO CONTROLADOR ADMIN ---
+function switchAdminTab(targetTab) {
+    adminGameSection.classList.add('hidden');
+    adminAdvancedSection.classList.add('hidden');
+    adminUserSection.classList.add('hidden');
+    
+    tabAddGame.style.background = "transparent";
+    tabAdvancedMenu.style.background = "transparent";
+    tabManageUsers.style.background = "transparent";
+
+    if (targetTab === 'add') {
+        adminGameSection.classList.remove('hidden');
+        tabAddGame.style.background = "var(--neon-purple)";
+    } else if (targetTab === 'advanced') {
+        adminAdvancedSection.classList.remove('hidden');
+        tabAdvancedMenu.style.background = "var(--neon-purple)";
+        buildAdminBulkSelectors(cachedGames);
+        renderAdminGamesTableList(cachedGames);
+    } else if (targetTab === 'users') {
+        adminUserSection.classList.remove('hidden');
+        tabManageUsers.style.background = "var(--neon-purple)";
         loadAdminUsersTable();
-    });
+    }
 }
 
-if (document.getElementById('btn-save-new-game')) {
-    document.getElementById('btn-save-new-game').addEventListener('click', async () => {
+if (tabAddGame) tabAddGame.addEventListener('click', () => switchAdminTab('add'));
+if (tabAdvancedMenu) tabAdvancedMenu.addEventListener('click', () => switchAdminTab('advanced'));
+if (tabManageUsers) tabManageUsers.addEventListener('click', () => switchAdminTab('users'));
+
+// --- FORMULÁRIO DE CADASTRO E EDIÇÃO DE JOGO INDIVIDUAL ---
+if (btnSaveNewGame) {
+    btnSaveNewGame.addEventListener('click', async () => {
+        const editId = document.getElementById('g-edit-id').value;
         const titulo = document.getElementById('g-title').value.trim();
         const plataforma = document.getElementById('g-platform').value;
         const categoria = document.getElementById('g-category').value.trim();
@@ -510,23 +559,227 @@ if (document.getElementById('btn-save-new-game')) {
         const url_rom = document.getElementById('g-rom').value.trim();
         const descricao = document.getElementById('g-desc').value.trim();
 
-        if(!titulo || !categoria || !subcategoria || !url_capa || !url_rom) { alert("Preencha os campos obrigatórios!"); return; }
+        if(!titulo || !categoria || !subcategoria || !url_capa || !url_rom) { alert("Preencha todos os campos obrigatórios!"); return; }
 
-        const newGameId = "game_" + Date.now();
-        await set(ref(database, `jogos/${newGameId}`), {
+        const targetGameId = editId ? editId : ("game_" + Date.now());
+        
+        await set(ref(database, `jogos/${targetGameId}`), {
             titulo, plataforma, categoria, subcategoria, url_capa, url_rom, descricao
         });
 
-        alert("Jogo adicionado com sucesso!");
+        alert(editId ? "Dados do jogo atualizados com sucesso!" : "Novo jogo adicionado com sucesso!");
+        clearAdminGameForm();
         modalAdmin.classList.add('hidden');
-        document.getElementById('g-title').value = "";
-        document.getElementById('g-cover').value = "";
-        document.getElementById('g-rom').value = "";
-        document.getElementById('g-desc').value = "";
     });
 }
 
-// CORREÇÃO DA TABELA DO ADMIN: Oculta instantaneamente usuários que possuem a flag "banido: true"
+if (btnCancelEditGame) {
+    btnCancelEditGame.addEventListener('click', () => clearAdminGameForm());
+}
+
+window.openQuickEditGameForm = function(gameId) {
+    const jogo = cachedGames[gameId];
+    if(!jogo) return;
+    
+    if (modalAdmin) modalAdmin.classList.remove('hidden');
+    switchAdminTab('add');
+
+    document.getElementById('g-edit-id').value = gameId;
+    document.getElementById('g-title').value = jogo.titulo || "";
+    document.getElementById('g-platform').value = jogo.plataforma || "nes";
+    document.getElementById('g-category').value = jogo.categoria || "";
+    document.getElementById('g-subcategory').value = jogo.subcategoria || "";
+    document.getElementById('g-cover').value = jogo.url_capa || "";
+    document.getElementById('g-rom').value = jogo.url_rom || "";
+    document.getElementById('g-desc').value = jogo.descricao || "";
+
+    if (adminFormTitle) adminFormTitle.textContent = "✏️ Editando Dados do Card";
+    if (btnSaveNewGame) btnSaveNewGame.textContent = "Salvar Alterações no Registro 💾";
+    if (btnCancelEditGame) btnCancelEditGame.classList.remove('hidden');
+};
+
+function clearAdminGameForm() {
+    document.getElementById('g-edit-id').value = "";
+    document.getElementById('g-title').value = "";
+    document.getElementById('g-platform').value = "nes";
+    document.getElementById('g-category').value = "";
+    document.getElementById('g-subcategory').value = "";
+    document.getElementById('g-cover').value = "";
+    document.getElementById('g-rom').value = "";
+    document.getElementById('g-desc').value = "";
+
+    if (adminFormTitle) adminFormTitle.textContent = "Lançar Novo Card de Jogo";
+    if (btnSaveNewGame) btnSaveNewGame.textContent = "Publicar Card no Catálogo 🚀";
+    if (btnCancelEditGame) btnCancelEditGame.classList.add('hidden');
+}
+
+// --- MENU PRÓPRIO ADM: TAXONOMIA, IMPORTAÇÃO, EXCLUSÃO EM LOTE ---
+function buildAdminBulkSelectors(jogos) {
+    if (!bulkFilterCategory || !bulkFilterSubcategory) return;
+    
+    const selectedCat = bulkFilterCategory.value;
+    const selectedSub = bulkFilterSubcategory.value;
+
+    const categoriasSet = new Set();
+    const subcategoriasSet = new Set();
+
+    for (let id in jogos) {
+        if (jogos[id].categoria) categoriasSet.add(jogos[id].categoria);
+        if (jogos[id].subcategoria) subcategoriasSet.add(jogos[id].subcategoria);
+    }
+
+    bulkFilterCategory.innerHTML = `<option value="">-- Selecione uma Categoria --</option>`;
+    categoriasSet.forEach(cat => {
+        bulkFilterCategory.innerHTML += `<option value="${cat}">${cat}</option>`;
+    });
+    bulkFilterCategory.value = selectedCat;
+
+    bulkFilterSubcategory.innerHTML = `<option value="">-- Selecione uma Subcategoria --</option>`;
+    subcategoriasSet.forEach(sub => {
+        bulkFilterSubcategory.innerHTML += `<option value="${sub}">${sub}</option>`;
+    });
+    bulkFilterSubcategory.value = selectedSub;
+}
+
+function renderAdminGamesTableList(jogos) {
+    const tableBody = document.getElementById('admin-games-list-table-body');
+    if (!tableBody) return;
+    tableBody.innerHTML = "";
+
+    if (Object.keys(jogos).length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: var(--text-gray);">Nenhum jogo no catálogo para gerenciamento individual.</td></tr>`;
+        return;
+    }
+
+    for (let id in jogos) {
+        const j = jogos[id];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="font-weight:600; color:white;">${j.titulo}</td>
+            <td><span style="color:var(--neon-cyan);">${j.plataforma.toUpperCase()}</span> / ${j.categoria}</td>
+            <td>
+                <button class="btn-sm" onclick="openQuickEditGameForm('${id}')" style="border-color:var(--neon-cyan); color:var(--neon-cyan); margin-right:5px;">Editar</button>
+                <button class="btn-sm" onclick="deleteIndividualGameByAdmin('${id}')">Excluir</button>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    }
+}
+
+window.deleteIndividualGameByAdmin = async function(gameId) {
+    if (confirm("Tem certeza de que deseja excluir permanentemente este jogo do catálogo?")) {
+        await remove(ref(database, `jogos/${gameId}`));
+        alert("Jogo deletado do catálogo com sucesso!");
+    }
+};
+
+// Alteração Nome de Categoria em Lote
+if (btnBulkEditCat) {
+    btnBulkEditCat.addEventListener('click', async () => {
+        const catSelecionada = bulkFilterCategory.value;
+        if (!catSelecionada) { alert("Selecione uma Categoria válida no menu acima para renomear!"); return; }
+
+        const novoNome = prompt(`Alterar o nome de todos os jogos da categoria "${catSelecionada}" para:`, catSelecionada);
+        if (!novoNome || novoNome.trim() === "" || novoNome.trim() === catSelecionada) return;
+
+        let atualizados = 0;
+        const updates = {};
+        
+        for (let id in cachedGames) {
+            if (cachedGames[id].categoria === catSelecionada) {
+                updates[`jogos/${id}/categoria`] = novoNome.trim();
+                atualizados++;
+            }
+        }
+
+        if (atualizados > 0) {
+            await update(ref(database), updates);
+            alert(`Sucesso! ${atualizados} jogos foram migrados para a categoria "${novoNome.trim()}".`);
+            bulkFilterCategory.value = "";
+        }
+    });
+}
+
+// Remoção em Lote (Categoria ou Subcategoria)
+if (btnBulkDeleteCat) {
+    btnBulkDeleteCat.addEventListener('click', async () => {
+        const catValue = bulkFilterCategory.value;
+        const subValue = bulkFilterSubcategory.value;
+
+        if (!catValue && !subValue) { alert("Você deve selecionar pelo menos uma Categoria ou Subcategoria para deletar em lote."); return; }
+
+        let mensagemConfirmacao = "";
+        if (catValue && subValue) mensagemConfirmacao = `TODOS os jogos que pertencem à categoria "${catValue}" E subcategoria "${subValue}" concomitantemente?`;
+        else if (catValue) mensagemConfirmacao = `TODOS os jogos contidos na categoria "${catValue}"?`;
+        else mensagemConfirmacao = `TODOS os jogos contidos na subcategoria "${subValue}"?`;
+
+        if (confirm(`🚨 ATENÇÃO CRÍTICA!\n\nVocê deseja mesmo EXCLUIR DEFINITIVAMENTE ${mensagemConfirmacao}\n\nEsta operação não pode ser revertida.`)) {
+            let deletados = 0;
+            for (let id in cachedGames) {
+                let match = true;
+                if (catValue && cachedGames[id].categoria !== catValue) match = false;
+                if (subValue && cachedGames[id].subcategoria !== subValue) match = false;
+
+                if (match) {
+                    await remove(ref(database, `jogos/${id}`));
+                    deletados++;
+                }
+            }
+            alert(`Ação de lote concluída! ${deletados} jogos foram removidos com sucesso.`);
+            bulkFilterCategory.value = "";
+            bulkFilterSubcategory.value = "";
+        }
+    });
+}
+
+// Backup / Exportação JSON
+if (btnExportJson) {
+    btnExportJson.addEventListener('click', () => {
+        if (Object.keys(cachedGames).length === 0) { alert("O catálogo atual está vazio. Nada para exportar."); return; }
+        
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cachedGames, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", `backup_catalogo_games_${Date.now()}.json`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+    });
+}
+
+// Importação de Catálogo via JSON
+if (importJsonFile) {
+    importJsonFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async function(event) {
+            try {
+                const importedData = JSON.parse(event.target.result);
+                if (typeof importedData !== 'object' || importedData === null) { throw new Error("Formato inválido."); }
+
+                if (confirm(`Detectado arquivo de backup contendo novos cards de jogos.\n\nDeseja realizar a mesclagem destes dados no seu banco do Firebase Realtime Database?`)) {
+                    const updates = {};
+                    for (let gameId in importedData) {
+                        const jogo = importedData[gameId];
+                        if (jogo.titulo && jogo.plataforma && jogo.url_rom) {
+                            updates[`jogos/${gameId}`] = jogo;
+                        }
+                    }
+                    await update(ref(database), updates);
+                    alert("Importação estrutural realizada com sucesso!");
+                }
+            } catch (err) {
+                alert("Falha na leitura do arquivo JSON. Verifique se a estrutura está íntegra.\nErro: " + err.message);
+            }
+            importJsonFile.value = "";
+        };
+        reader.readAsText(file);
+    });
+}
+
+// --- LISTA DE USUÁRIOS E BANIMENTOS ---
 async function loadAdminUsersTable() {
     const tableBody = document.getElementById('admin-users-table-body');
     if (!tableBody) return;
@@ -540,8 +793,6 @@ async function loadAdminUsersTable() {
     for (let uid in usuarios) {
         const p = usuarios[uid].perfil;
         if (!p || p.email === "admin@admin.com") continue;
-        
-        // Se o usuário foi banido, pula ele para sumir totalmente da lista do admin
         if (p.banido === true) continue;
 
         totalVisiveis++;
@@ -562,11 +813,9 @@ async function loadAdminUsersTable() {
     }
 }
 
-// ADIÇÃO DA REGRA DE BANIMENTO E LIMPEZA COMPLETA DE DADOS NA NUVEM
 window.executePurgeUserByAdmin = async function(userUid) {
     if (confirm("Confirmar banimento definitivo? O usuário desaparecerá da lista, terá seus dados deletados e será bloqueado de entrar no sistema imediatamente.")) {
         try {
-            // Mantém apenas o e-mail e altera o status para banido no banco para servir de barreira perpétua
             await update(ref(database, `usuarios/${userUid}/perfil`), { 
                 banido: true, 
                 solicitou_exclusao: false,
@@ -575,19 +824,18 @@ window.executePurgeUserByAdmin = async function(userUid) {
                 cidade: "Removido"
             });
             
-            // Deleta completamente os dados periféricos dele
             await remove(ref(database, `usuarios/${userUid}/favoritos`));
             await remove(ref(database, `usuarios/${userUid}/saves`));
             
             alert("Usuário banido e dados removidos com sucesso!");
-            loadAdminUsersTable(); // Recarrega a tabela onde ele já não vai mais aparecer
+            loadAdminUsersTable();
         } catch (err) {
             alert("Erro ao executar ação: " + err.message);
         }
     }
 };
 
-// --- MOTOR DE EMBED SYNC DO EMULADOR ---
+// --- MOTOR DE INICIALIZAÇÃO DO EMULADOR (EMULATORJS) ---
 window.launchGame = function(system, romUrl, gameTitle) {
     if (document.getElementById('catalog-screen')) document.getElementById('catalog-screen').classList.add('hidden');
     const emuScreen = document.getElementById('emulator-screen');
