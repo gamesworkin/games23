@@ -91,9 +91,12 @@ const importJsonFile = document.getElementById('import-json-file');
 const authLoginSec = document.getElementById('auth-login-section');
 const authRegisterSec = document.getElementById('auth-register-section');
 
-// --- SISTEMA DE CONTROLE DO GATILHO DA SETA (MENU MOBILE) ---
+// --- SISTEMA DE CONTROLE CORRIGIDO DO MENU RETRÁTIL MOBILE ---
 if (btnMenuToggle && navbarLinks) {
-    btnMenuToggle.addEventListener('click', () => {
+    btnMenuToggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
         const isOpen = navbarLinks.classList.toggle('mobile-open');
         if (isOpen) {
             btnMenuToggle.classList.add('open-active');
@@ -104,8 +107,18 @@ if (btnMenuToggle && navbarLinks) {
         }
     });
 
+    // Fecha o menu ao clicar em links internos ou botões de ação
     navbarLinks.addEventListener('click', (e) => {
         if (e.target.closest('a') || e.target.closest('button')) {
+            navbarLinks.classList.remove('mobile-open');
+            btnMenuToggle.classList.remove('open-active');
+            btnMenuToggle.textContent = "▼";
+        }
+    });
+
+    // Fecha o menu se clicar fora da barra de navegação
+    document.addEventListener('click', (e) => {
+        if (!navbarLinks.contains(e.target) && !btnMenuToggle.contains(e.target)) {
             navbarLinks.classList.remove('mobile-open');
             btnMenuToggle.classList.remove('open-active');
             btnMenuToggle.textContent = "▼";
@@ -215,7 +228,7 @@ if (document.getElementById('btn-save-profile')) {
 
         try {
             await update(ref(database, `usuarios/${currentUId}/perfil`), { nome, sobrenome, cidade });
-            alert("Perfil atualizado com sucesso!");
+            alert("Perfil updated com sucesso!");
             if (userName) userName.textContent = nome;
             modalProfile.classList.add('hidden');
         } catch (err) { alert("Falha ao salvar: " + err.message); }
@@ -275,9 +288,6 @@ const registerPasswordInput = document.getElementById('reg-senha');
 if (registerPasswordInput) {
     registerPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); processRegisterAction(); } });
 }
-
-if (btnExecuteLogin) btnExecuteLogin.addEventListener('click', () => processLoginAction());
-if (btnExecuteRegister) btnExecuteRegister.addEventListener('click', () => processRegisterAction());
 
 async function processLoginAction() {
     const email = document.getElementById('login-email').value.trim();
